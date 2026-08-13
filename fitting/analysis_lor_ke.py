@@ -18,7 +18,7 @@ except NameError:
     PROJECT_ROOT = Path.cwd().parent # jup
 sys.path.append(str(PROJECT_ROOT))
 
-data_dir = PROJECT_ROOT.parent / "2608" / "260812" / "C6C-200-4A_FourierEdge_1e-4"
+data_dir = PROJECT_ROOT.parent / "2608" / "260813" / "C5A-200-5B_FourierEdge_250ms" # input("Enter the path to the data directory: ")
 print("data location: ", data_dir)
 ### Find all CSV files in the data directory and count them
 print(len(list(data_dir.iterdir())), "files found in data directory.")
@@ -59,7 +59,7 @@ for f in files:
             )
         #print(f"File: {f.name}, Peaks found at wavelengths: {lam_windowed[peaks]}")
         if len(peaks) == 0:
-            print("No peaks found in file: ", f.name)
+            #print("No peaks found in file: ", f.name)
             row.update({
                 'Fitted Amplitude': np.nan,
                 'Amplitude Error': np.nan,
@@ -102,7 +102,7 @@ for f in files:
             'Fit Status': 'Fit successful'
         })
 
-        plot = 0 # input("y or n to plot? ")
+        plot = 0 # input("y or n to plot?")
         if plot == "y":
             fig, ax = plt.subplots()
             ax.plot(lam, counts, label='Raw Data')
@@ -132,7 +132,7 @@ for f in files:
 
 results = pd.DataFrame(rows)
 results.to_csv(data_dir / 'fit_results.csv', index=False)
-print(results.head())
+#print(results.head())
 print(f"Saved {len(results)} rows to {data_dir / 'fit_results.csv'}")
 
 """
@@ -169,8 +169,8 @@ ax.set_ylabel('Fitted Amplitude (Hz)')
 ax.set_title(f'Knife Edge Analysis: {data_dir.name}')
 ax.legend()
 
-save_figure = input("y or n to save figure? ")
+save_figure = "y" # input("y or n to save figure? ")
 if save_figure == "y":
-    savefig = data_dir / f'{data_dir.name}_erf_fit.pdf'
+    savefig = data_dir / f'{data_dir.name}_erf_fit.png'
     fig.savefig(savefig, dpi=300)
 plt.show()
