@@ -28,32 +28,49 @@ elif normalised == 1:
 
 print(f"Searching for {data_norm_yn} folders in ", str(folder_dir))
 for data_folder in folder_dir.glob("*/" + data_norm_yn): # search for subfolders in folder_dir (daily folder) which have a PowerNorm subfolder
+    print(data_folder.parent.name)
     if data_folder.is_dir(): # check its a folder (directory)
         #print(f"Found {data_folder.name} folder in: ", data_folder.parent.name, data_folder.parent.name)
         files = [f for f in data_folder.glob("*.csv") if 'results' not in f.name.lower() ]
         if files:
             latest_file = max(files, key=lambda f: f.stat().st_mtime)
             #print("Latest File: ", latest_file.name)
-            print(len(files), "matching CSV files found in ", data_folder.parent.name, data_folder.name)
+            #print(len(files), "matching CSV files found in ", data_folder.parent.name, data_folder.name)
         else:
             print("No matching CSV files found in ", data_folder.name)
-print("Found", len(list(folder_dir.glob("*/" + data_norm_yn))), f"{data_norm_yn} folders in ", str(folder_dir))
+#print("Found", len(list(folder_dir.glob("*/" + data_norm_yn))), f"{data_norm_yn} folders in ", str(folder_dir))
 master_csv = [] # master csv file to hold all pillar results from all days. Contains erf width and error, NA and error
 
 for data_folder in folder_dir.glob("*/" + data_norm_yn): # find all subfolders in the daily global folder 
     if not data_folder.is_dir(): # skip anything that isn't a folder
         print("Skipping non-directory: ", data_folder.name)
         continue
-
-    pillar_id = str(data_folder.parent.name.split('_')[0]) # get the pillar ID from the folder name. take the [0] index of the parent folder name when splitting by underscore
-    print(f"Found {data_folder.name} folder in: ", data_folder.parent.name)
-    pillar_diam = float(data_folder.parent.name.split('-')[1][:3])/100 # get the pillar size from the folder name. take the [1] index of the parent folder name and then the first 3 characters
+    laser_measurement = False
+    bigsquare_measurement = False
+    if 'BIGSQUARE' in data_folder.parent.name.upper():
+        bigsquare_measurement = True
+        continue
+    if 'laser' in data_folder.parent.name.lower():
+        laser_measurement = True
+        print("Laser measurement detected.")
+        #print("Using peak value minus mean outside the window instead of fitted amplitude for laser measurements.")
+    try:
+        pillar_id = str(data_folder.parent.name.split('_')[0]) # get the pillar ID from the folder name. take the [0] index of the parent folder name when splitting by underscore
+        pillar_diam = float(data_folder.parent.name.split('-')[1][:3])/100 # get the pillar size from the folder name. take the [1] index of the parent folder name and then the first 3 characters
+        if pillar_id == '':
+            pillar_id = "Unknown"
+        if pillar_diam == '':
+            pillar_diam = np.nan
+    except ValueError:
+        print("Error: Could not extract pillar ID from folder name.")
+        pillar_id = "Unknown"
+        pillar_diam = np.nan
     files = [f for f in data_folder.glob("*.csv") if 'results' not in f.name.lower() ]
     #data_dir = folder
     #print("data dir: ", data_dir)
     if files:
-        latest_file = max(files, key=lambda f: f.stat().st_mtime)
-        print(len(files), "matching CSV files found in ", data_folder.parent.name,"/", data_folder.name)
+        earliest_file = min(files, key=lambda f: f.stat().st_mtime)
+        #print(len(files), "matching CSV files found in ", data_folder.parent.name,"/", data_folder.name)
     else:
         print("No matching CSV files found in ", data_folder.parent.name,"/", data_folder.name)
 
@@ -64,12 +81,12 @@ for data_folder in folder_dir.glob("*/" + data_norm_yn): # find all subfolders i
             'Pillar diameter': pillar_diam,
             } 
 
-    lam, counts = load_csv(latest_file) # load data from .csv
+    lam, counts = load_csv(earliest_file) # load data from .csv
     peaks, props = find_peaks(counts, prominence=100, distance=60, height=1) # find peaks
     long_lam_peak_idx = np.argmax(counts[peaks]) # find peak with largest index (longest wavelength)
-    lam_fundamental = lam[peaks][long_lam_peak_idx] # get the wavelength of the fundamental peak
-    counts_fundamental = counts[peaks][long_lam_peak_idx] # get the counts of the fundamental peak
-    print("Fundamental wavelength for data folder ", data_folder.parent.name,"/", data_folder.name, ": ", lam_fundamental)
+    lam_fundamental = lam[peaks][-1] # get the wavelength of the fundamental peak
+    counts_fundamental = counts[peaks][-1] # get the counts of the fundamental peak
+    print("Fundamental wavelength:", lam_fundamental)
 
 
     #print("Lower bound amplitude: ", lower_bounds[0])
@@ -87,6 +104,7 @@ for data_folder in folder_dir.glob("*/" + data_norm_yn): # find all subfolders i
             lam_window = (lam > lam_fundamental - window/2) & (lam < lam_fundamental + window/2)
             lam_windowed = lam[lam_window]
             counts_windowed = counts[lam_window]
+            counts_outside_window = counts[~lam_window]
             #print(f"File: {f.name}, \nFitting window: {lam_windowed.min()} - {lam_windowed.max()} nm")
             peaks, props = find_peaks(
                 counts_windowed, 
@@ -115,7 +133,7 @@ for data_folder in folder_dir.glob("*/" + data_norm_yn): # find all subfolders i
 
 
             lower_bounds = [0.3 * (counts_windowed[peaks][0]-np.min(counts_windowed)), 2, lam_fundamental - 5, 0.1*np.min(counts_windowed)] # amp, width, wavelength, offset
-            upper_bounds = [1.5 * (counts_windowed[peaks][0]-np.min(counts_windowed)), 40, lam_fundamental + 5, 5 * np.min(counts_windowed)] # amp, width, wavelength, offset
+            upper_bounds = [1.5 * (counts_windowed[peaks][0]-np.min(counts_windowed)), 10, lam_fundamental + 5, 5 * np.min(counts_windowed)] # amp, width, wavelength, offset
             guesses = [{
                 "amplitude": counts_windowed[peaks][0] - np.min(counts_windowed),
                 "width": 10,
@@ -123,18 +141,14 @@ for data_folder in folder_dir.glob("*/" + data_norm_yn): # find all subfolders i
                 "offset": np.min(counts_windowed)
             }]
 
-
-
-
-
             try:
-                popt, perr, y_fit = fit_lorentzian(
+                popt, perr, y_fit = fit_lorentzian( # try to fit lorentzian to data
                     lam_windowed,
                     counts_windowed, 
                     guesses,
                     bounds=(lower_bounds, upper_bounds)
                     )
-            except Exception as exc:
+            except Exception as exc: # if fitting fails, fill row with NaN vals
                 print(f"Fitting failed for {f.name}")
                 print(repr(exc))
                 popt, perr, y_fit = None, None, None
@@ -185,7 +199,7 @@ for data_folder in folder_dir.glob("*/" + data_norm_yn): # find all subfolders i
             print(f"Unexpected error for file {f.name}")
             print(repr(exc))
             row.update({
-                'Fitted Amplitude': np.nan,
+                'Fitted Amplitude': counts_windowed[peaks][0] - np.mean(counts_outside_window) if len(peaks) > 0 else np.nan,
                 'Amplitude Error': np.nan,
                 'Fitted Wavelength': np.nan,
                 'Wavelength Error': np.nan,
@@ -200,34 +214,34 @@ for data_folder in folder_dir.glob("*/" + data_norm_yn): # find all subfolders i
         
         #print(len(files_peakless), "files with no peaks found in ", data_folder.name)
     filenum = 0
-    print(len(files_peakless), "files with no peaks found in ", data_folder.parent.name, data_folder.name) # how many files had no peaks in *Pillar measurement* / PowerNorm or RawCounts folder
+    print(len(files_peakless), "files with no peaks found out of", len(files), "total files.") # how many files had no peaks in *Pillar measurement* / PowerNorm or RawCounts folder
 
     results = pd.DataFrame(rows)
     results.to_csv(data_folder / f'fit_results_{data_folder.parent.name}.csv', index=False) # save results to PowerNorm or RawCounts folder
 
     ### Analyse amplitudes ###
 
-    ke_image_size = 1000 * 2.8 * 150 / 500 #fourier image diameter at knife edge in um
+    ke_image_size = 1000 * 2.8 * 100 / 500 #fourier image diameter at knife edge in um
 
     df = pd.read_csv(data_folder / f'fit_results_{data_folder.parent.name}.csv')
     fit_amp = df['Fitted Amplitude'].fillna(0)  # Fill NaN values with 0 for plotting
     final_cavity_width = df['Fitted Width'].iloc[-1]  # Save cavity width (nm) from last file to save to master csv
     in_to_um = 2.54 * 1e4 # convert inches to micrometers
-    step_from_file = data_folder.parent.stem.split('_')[-1]  # get the characters after the last underscore in the folder name, excluding file extension
     try: 
-        step_from_file = float(data_folder.parent.stem.rsplit('_', 1)[-1]) # get the characters after the last underscore in the folder name, excluding file extension
-        print("Step size from folder name: ", step_from_file)
+        stepfile = data_folder.parent.name.split("_", 5)[2] # get characters after 2nd underscore in folder name
+        step_from_file = 1e-4 * float(stepfile.split(" ", 1)[0]) # extract numerical value by separating with a space, then multiply by 1e-4
+        #print("Step size from folder name: ", step_from_file)
     except ValueError:
-        step_from_file = 5e-4 # if it fails, set to 5e-4 as default
+        step_from_file = 2e-3 # if it fails, set to 5e-4 as default
         print("Could not parse step size from folder name, using default: ", step_from_file)
     step_to_um = in_to_um * step_from_file
     #print("Step size in micrometers: ", step_to_um)
     # one step is 1e-4 of an inch, one inch is 2.54cm and then multiply by 1e-4 to get to um 
     ke_pos = step_to_um * np.arange(len(df))
 
-    erf_guess = [{
+    erf_guess = [{ # fit erf to signal to get input beam profile
         "amplitude": np.max(fit_amp),
-        "width": 5,
+        "width": -50,
         "centre": np.argwhere(fit_amp == np.max(fit_amp))[0][0],  # Use the index of the maximum amplitude as the initial guess for the centre
         "offset": fit_amp.min()
     }]
@@ -243,8 +257,10 @@ for data_folder in folder_dir.glob("*/" + data_norm_yn): # find all subfolders i
     fig, ax = plt.subplots()
     ax.plot(ke_pos, fit_amp, marker='o', linestyle='-', color='blue')
     if popt is not None:
-        ax.plot(x_fit, erf_func(x_fit, *popt), color='red', label=f'Error Function Fit \nWidth: {round(popt[1], 2)}$\\pm$ {round(perr[1], 2)} μm \nNA: {round(2*popt[1] / (0.5 * ke_image_size), 3)} $\\pm$ {round(2 * perr[1] / (0.5 * ke_image_size), 3)}') #, \nAmplitude: {round(popt[0], 2)}, \nCentre: {round(step_to_um * popt[2], 2)} μm, \nOffset: {round(popt[3], 2)}')
-    #ax.set_xlim(50, 500)
+        erf_width = abs(popt[1])
+        na = 0.7 * (2 * erf_width / (0.5 * ke_image_size)) # 0.7 to correct for objective max NA=0.7
+        ax.plot(x_fit, erf_func(x_fit, *popt), color='red', label=f'ERF Fit \nWidth: {round(erf_width, 2)}$\\pm$ {round(perr[1], 2)} μm \nNA: {round(na, 3)}$\\pm$ {round(2 * perr[1] / (0.5 * ke_image_size), 3)}') #, \nAmplitude: {round(popt[0], 2)}, \nCentre: {round(step_to_um * popt[2], 2)} μm, \nOffset: {round(popt[3], 2)}')
+        print("ERF width for", pillar_id, ": ", round(erf_width, 2), " ± ", round(perr[1], 2), " μm")    #ax.set_xlim(50, 500)
     #ax.set_ylim(0, 3000)
     ax.set_xlabel('Knife Edge Position (μm)')
     ax.set_ylabel('Fitted Amplitude (Hz)')
@@ -271,102 +287,105 @@ for data_folder in folder_dir.glob("*/" + data_norm_yn): # find all subfolders i
 
     master_csv.append(master_csv_row) # append row with results to master csv file
     master_results = pd.DataFrame(master_csv)
-    master_csv_location = PROJECT_ROOT.parent / '2609' / '260928' 
-    master_csv_name = f'master_pillar_results_260928.csv'
-    master_results.to_csv( master_csv_location / master_csv_name, index=False) # save results to PowerNorm or RawCounts folder
-
-
-
-    print("Saved erf fits and NAs to ", master_csv_name, " in ", master_csv_location)
+    #master_csv_location = PROJECT_ROOT.parent / '2609' / '260928' 
+    master_csv_name = f'master_pillar_results_{folder_dir.name}.csv'
+    master_results.to_csv(folder_dir / master_csv_name, index=False) # save results to PowerNorm or RawCounts folder
+   
     print("""\n ========================= \n """)
     #plt.show()
 
-### Plot NA vs pillar diameter from master csv file
+print("Saved erf fits and NAs to", master_csv_name, "in", folder_dir)
 
-df2 = pd.read_csv(PROJECT_ROOT.parent / 'master_pillar_results.csv')
-pillar_diams = df2.iloc[:, 1].to_numpy()
-pillar_nas = df2.iloc[:, 4].to_numpy()
-pillar_na_error = df2.iloc[:, 5].to_numpy()
+analyse_master_csv = 'n' # 'n' or 'individual' or 'average'
+if analyse_master_csv == 'individual':
 
-fig, ax2 = plt.subplots()
-ax2.plot(pillar_diams, pillar_nas, 'o', label='Fitted NAs', markersize=10)
-ax2.errorbar(pillar_diams, pillar_nas, yerr=pillar_na_error, fmt='none', ecolor='gray', alpha=0.5, label='NA Error')
-ax2.set_xlabel('Pillar Diameter (μm)')
-ax2.set_ylabel('NA')
-ax2.set_title('NA vs Pillar Diameter')
-ax2.legend()
-savefig = PROJECT_ROOT.parent / 'master_pillar_na_results.png'
-fig.savefig(savefig, dpi=300)
+    ### Plot NA vs pillar diameter from master csv file
 
-"""
-Open master csv file and average results for each distinct pillar ID. Save to new csv file with averaged results.
-Plot data and save as png
-"""
+    df2 = pd.read_csv(PROJECT_ROOT.parent / 'master_pillar_results.csv')
+    pillar_diams = df2.iloc[:, 1].to_numpy()
+    pillar_nas = df2.iloc[:, 4].to_numpy()
+    pillar_na_error = df2.iloc[:, 5].to_numpy()
 
-df3 = pd.read_csv(master_csv_location / master_csv_name)
-pillar_id = df3.iloc[:, 1].to_numpy()
-pillar_diams = df3.iloc[:, 2].to_numpy()
-pillar_erf_widths = df3.iloc[:, 3].to_numpy()
-pillar_erf_width_error = df3.iloc[:, 4].to_numpy()
-pillar_nas = df3.iloc[:, 5].to_numpy()
-pillar_na_error = df3.iloc[:, 6].to_numpy()
-pillar_amplitudes = df3.iloc[:, 7].to_numpy()
-pillar_wavelengths = df3.iloc[:, 8].to_numpy()
-pillar_cavity_widths = df3.iloc[:, 9].to_numpy()
+    fig, ax2 = plt.subplots()
+    ax2.plot(pillar_diams, pillar_nas, 'o', label='Fitted NAs', markersize=10)
+    ax2.errorbar(pillar_diams, pillar_nas, yerr=pillar_na_error, fmt='none', ecolor='gray', alpha=0.5, label='NA Error')
+    ax2.set_xlabel('Pillar Diameter (μm)')
+    ax2.set_ylabel('NA')
+    ax2.set_title('NA vs Pillar Diameter')
+    ax2.legend()
+    savefig = PROJECT_ROOT.parent / 'master_pillar_na_results.png'
+    fig.savefig(savefig, dpi=300)
 
+elif analyse_master_csv == 'average':
+    """
+    Open master csv file and average results for each distinct pillar ID. Save to new csv file with averaged results.
+    Plot data and save as png
+    """
 
-"""
-search thru data and find rows where pillar id is the same. average the nas and errors for that pillar id. 
-"""
-
-
-distinct_pillar_id = list(set(pillar_id))
-amplitude_avg_list, wavelength_avg_list, cavity_width_avg_list, diams_list, width_avg_list, width_error_avg_list, na_avg_list, na_error_avg_list = [], [], [], [], [], [], [], []
-
-for i in distinct_pillar_id: # go through each distinct pillar id
-    mask = pillar_id == i # mask is where pillar id matches distinct pillar id
-    diam = pillar_diams[mask][0] # get the diameter for that pillar id. [0] gets first instance of that pillar id, as all should have same diam
-    pillar_nas_for_id = pillar_nas[mask] # get all the NAs
-    pillar_erf_widths_for_id = pillar_erf_widths[mask] # get all the widths
-    pillar_erf_width_error_for_id = pillar_erf_width_error[mask] # get all the width errors
-    pillar_na_error_for_id = pillar_na_error[mask] # get all na errors
-    width_avg_list.append(np.average(pillar_erf_widths_for_id, weights=1/pillar_erf_width_error_for_id**2)) # weighted average the widths for that pillar id
-    width_error_avg_list.append(np.sqrt(1/(np.sum(1/pillar_erf_width_error_for_id**2)))) # weighted average the width errors
-    amplitude_avg_list.append(np.average(pillar_amplitudes[mask], weights=1/pillar_na_error[mask]**2)) # weighted average the amplitudes for that pillar id
-    wavelength_avg_list.append(np.average(pillar_wavelengths[mask], weights=1/pillar_na_error[mask]**2)) # weighted average the wavelengths for that pillar id
-    cavity_width_avg_list.append(np.average(pillar_cavity_widths[mask], weights=1/pillar_na_error[mask]**2)) # weighted average the cavity widths for that pillar id
-    na_avg_list.append(np.average(pillar_nas[mask], weights=1/pillar_na_error[mask]**2)) # weighted average the NAs for that pillar id
-    na_error_avg_list.append(np.sqrt(1/(np.sum(1/pillar_na_error[mask]**2)))) # weighted average the na errors
-    diams_list.append(diam) # append the diameter for that pillar id to the list
+    df3 = pd.read_csv(folder_dir / master_csv_name)
+    pillar_id = df3.iloc[:, 1].to_numpy()
+    pillar_diams = df3.iloc[:, 2].to_numpy()
+    pillar_erf_widths = df3.iloc[:, 3].to_numpy()
+    pillar_erf_width_error = df3.iloc[:, 4].to_numpy()
+    pillar_nas = df3.iloc[:, 5].to_numpy()
+    pillar_na_error = df3.iloc[:, 6].to_numpy()
+    pillar_amplitudes = df3.iloc[:, 7].to_numpy()
+    pillar_wavelengths = df3.iloc[:, 8].to_numpy()
+    pillar_cavity_widths = df3.iloc[:, 9].to_numpy()
 
 
+    """
+    search thru data and find rows where pillar id is the same. average the nas and errors for that pillar id. 
+    """
 
-df_avg = pd.DataFrame({
-    'Diameter': diams_list,
-    'Pillar ID': distinct_pillar_id,
-    'Average ERF Width (um)': width_avg_list,
-    'Average ERF Width Error (um)': width_error_avg_list,
-    'Average NA': na_avg_list,
-    'Average NA Error': na_error_avg_list,
-    'Average Amplitude': amplitude_avg_list,
-    'Average Wavelength (nm)': wavelength_avg_list,
-    'Average Cavity Width (nm)': cavity_width_avg_list,
-})
 
-avg_master_csv_name = 'avg_' + master_csv_name
-df_avg.to_csv(master_csv_location / avg_master_csv_name, index=False)
+    distinct_pillar_id = list(set(pillar_id))
+    amplitude_avg_list, wavelength_avg_list, cavity_width_avg_list, diams_list, width_avg_list, width_error_avg_list, na_avg_list, na_error_avg_list = [], [], [], [], [], [], [], []
+
+    for i in distinct_pillar_id: # go through each distinct pillar id
+        mask = pillar_id == i # mask is where pillar id matches distinct pillar id
+        diam = pillar_diams[mask][0] # get the diameter for that pillar id. [0] gets first instance of that pillar id, as all should have same diam
+        pillar_nas_for_id = pillar_nas[mask] # get all the NAs
+        pillar_erf_widths_for_id = pillar_erf_widths[mask] # get all the widths
+        pillar_erf_width_error_for_id = pillar_erf_width_error[mask] # get all the width errors
+        pillar_na_error_for_id = pillar_na_error[mask] # get all na errors
+        width_avg_list.append(np.average(pillar_erf_widths_for_id, weights=1/pillar_erf_width_error_for_id**2)) # weighted average the widths for that pillar id
+        width_error_avg_list.append(np.sqrt(1/(np.sum(1/pillar_erf_width_error_for_id**2)))) # weighted average the width errors
+        amplitude_avg_list.append(np.average(pillar_amplitudes[mask], weights=1/pillar_na_error[mask]**2)) # weighted average the amplitudes for that pillar id
+        wavelength_avg_list.append(np.average(pillar_wavelengths[mask], weights=1/pillar_na_error[mask]**2)) # weighted average the wavelengths for that pillar id
+        cavity_width_avg_list.append(np.average(pillar_cavity_widths[mask], weights=1/pillar_na_error[mask]**2)) # weighted average the cavity widths for that pillar id
+        na_avg_list.append(np.average(pillar_nas[mask], weights=1/pillar_na_error[mask]**2)) # weighted average the NAs for that pillar id
+        na_error_avg_list.append(np.sqrt(1/(np.sum(1/pillar_na_error[mask]**2)))) # weighted average the na errors
+        diams_list.append(diam) # append the diameter for that pillar id to the list
 
 
 
-fig, ax3 = plt.subplots()
-ax3.plot(diams_list, na_avg_list, 'o', label='Avg NA', markersize=10)
-ax3.errorbar(diams_list, na_avg_list, yerr=na_error_avg_list,
-             fmt='none', ecolor='gray', alpha=0.5,
-             capsize=3, capthick=1, elinewidth=1,
-             label='NA Error')
-ax3.set_xlabel('Pillar Diameter (um)')
-ax3.set_ylabel('NA')
-ax3.set_title(avg_master_csv_name.split('.')[0]) # split the master csv name to remove the .csv extension and use the rest as the title
-ax3.legend()
-savefig = (master_csv_location / avg_master_csv_name).with_suffix('.png')
-fig.savefig(savefig, dpi=300)
+    df_avg = pd.DataFrame({
+        'Diameter': diams_list,
+        'Pillar ID': distinct_pillar_id,
+        'Average ERF Width (um)': width_avg_list,
+        'Average ERF Width Error (um)': width_error_avg_list,
+        'Average NA': na_avg_list,
+        'Average NA Error': na_error_avg_list,
+        'Average Amplitude': amplitude_avg_list,
+        'Average Wavelength (nm)': wavelength_avg_list,
+        'Average Cavity Width (nm)': cavity_width_avg_list,
+    })
+
+    avg_master_csv_name = 'avg_' + master_csv_name
+    df_avg.to_csv(folder_dir / avg_master_csv_name, index=False)
+
+
+
+    fig, ax3 = plt.subplots()
+    ax3.plot(diams_list, na_avg_list, 'o', label='Avg NA', markersize=10)
+    ax3.errorbar(diams_list, na_avg_list, yerr=na_error_avg_list,
+                fmt='none', ecolor='gray', alpha=0.5,
+                capsize=3, capthick=1, elinewidth=1,
+                label='NA Error')
+    ax3.set_xlabel('Pillar Diameter (um)')
+    ax3.set_ylabel('NA')
+    ax3.set_title(avg_master_csv_name.split('.')[0]) # split the master csv name to remove the .csv extension and use the rest as the title
+    ax3.legend()
+    savefig = folder_dir / f'{avg_master_csv_name.split(".")[0]}.png'
+    fig.savefig(savefig, dpi=300)
