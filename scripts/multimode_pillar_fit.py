@@ -243,3 +243,4 @@ def fit_erf(x, y, erf_guess):
     perr = np.sqrt(np.diag(pcov))
     y_fit = erf_func(x, *popt)
     return popt, perr, y_fit
+ 
