@@ -98,7 +98,7 @@ ax4.hist(na_by_diam, bins=bins, stacked=False,   # stacked=False puts the diamet
          color=[diam_colour[d] for d in unique_diams],
          label=[diam_label[d] for d in unique_diams],
          edgecolor='black',
-         alpha=0.5)
+         alpha=0.5) 
 ax4.set_xlabel('Averaged NA')
 ax4.set_ylabel('Number of pillars')
 ax4.set_title(avg_master_csv_name.split('.')[0] + ': C3')
