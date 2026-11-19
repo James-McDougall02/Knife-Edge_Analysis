@@ -371,7 +371,7 @@ for data_folder in folder_dir.iterdir(): # find all subfolders in the daily glob
     master_csv.append(master_csv_row) # append row with results to master csv file
     master_results = pd.DataFrame(master_csv)
     #master_csv_location = PROJECT_ROOT.parent / '2609' / '260929' 
-    master_csv_name = f'{folder_dir.name}_master_pillar_results.csv'
+    master_csv_name = f'{folder_dir.parent.name}_{folder_dir.name}_master_pillar_results.csv'
     master_results.to_csv(folder_dir / master_csv_name, index=False) # save results to PowerNorm or RawCounts folder
     print("""\n ========================= \n """)
 
