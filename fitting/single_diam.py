@@ -117,7 +117,7 @@ plt.show()
 # Plot na / wavelength / amplitude / cavity width vs pillar ID for each distinct pillar ID
 
 pillar_matrix = np.array([s.split('-')[-1] for s in distinct_pillar_id])
-plot_type = 'NA'
+plot_type = 'NA' 
 fig, ax5 = plt.subplots()
 ax5.plot(pillar_matrix, na_avg_list, 'o', label='NA per pillar', markersize=10, color='blue')
 #ax5.plot(distinct_pillar_id, wavelength_avg_list, 'o', label='Wavelength per pillar', markersize=10, color='red')
